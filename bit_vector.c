@@ -438,10 +438,10 @@ int vit_unload(bv_t bv) {
 
 	unsigned char* bits = bv->bits;
 
-	d += bits[3]  << 24;
-	d += bits[2] << 16;
-	d += bits[1] << 8;
-	d += bits[0];
+	d += bits[4]  << 24;
+	d += bits[3] << 16;
+	d += bits[2] << 8;
+	d += bits[1];
 
 	return d;
 }
@@ -685,10 +685,10 @@ void add_CRC(bv_t bv, short len) {
  * 	returns 1 (TRUE) or 0 (FALSE)
  */
 short check_CRC(bv_t bv, short len) {
-	char CRC = get(bv,len,len+7);
+	char CRC = bv->bits[0];
 
     unsigned int CRC_8 = 285;
-    unsigned long remainder = unload(bv);
+    unsigned long remainder = vit_unload(bv);
     short i;
 
     remainder <<= 8;
@@ -700,7 +700,7 @@ short check_CRC(bv_t bv, short len) {
     }
     unsigned char r = 0xFF & remainder;
 
-    return CRC == r;
+    return (CRC == r);
 }
 
 

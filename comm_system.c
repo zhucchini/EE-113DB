@@ -174,13 +174,21 @@ interrupt void interrupt4(void) { // interrupt service routine
 						print_vec(rec_message);
 					}
 				} else if (index == N-(PROCESS_TIME-19)) {
-					// if (check_CRC(rec_message,32)) {
-					int temp300 = vit_unload(rec_message);
-					display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
-					if (DEBUG) {
-						printf("vit_unload: %d, display: %f \n \n \n", temp300, display);
+					if (!arq_in_prog && check_CRC(rec_message,32)) {
+						int temp300 = vit_unload(rec_message);
+						display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
+						if (DEBUG) {
+							printf("vit_unload: %d, display: %f \n \n \n", temp300, display);
+						}
+					} else {
+						if(!arq_in_prog) {
+							arq_in_prog = TRUE;
+						} else {
+							int temp300 = vit_unload(rec_message);
+							display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
+							arq_in_prog = FALSE;
+						}
 					}
-					// }
 				} else if (index == N-(PROCESS_TIME-20)) {
 					vit_dec_reset();
 					rec_message_index = 0;
@@ -230,7 +238,7 @@ interrupt void interrupt4(void) { // interrupt service routine
 
 		//*** TODO Reed-Solomon encoding for HARQ II
 
-		if(/*!arq_in_prog &&*/ rec_ready) {
+		if(!arq_in_prog && rec_ready) {
 			if(counter == 0) {
 				// get message from sensor (in this case dial
 				// represent float data as an int
@@ -268,7 +276,7 @@ interrupt void interrupt4(void) { // interrupt service routine
 	//			bitvec_xor(e_block, left);
 			}
 			else if(counter == 34) { //add CRC for ED
-				// add_CRC(p_block,32);
+				add_CRC(p_block,32);
 				//add_CRC(e_block);
 				//RS_encode(e_block,rs_block);
 			}
@@ -370,48 +378,49 @@ int main(void) {
 
 	//load(p_block,0xF35AC);
 	//add_CRC(p_block,32);
-//	clear_vec(p_block);
-//	load(p_block, 0xF35AC);
-//	add_CRC(p_block,32);
-//	print_vec(p_block);
-//	clear_vec(c_block);
-//	for(i = 0; i < 40; i++) {
-//		unsigned short abc = pop(p_block);
-////		printf("bit: %u, ", abc);
-//		encode(c_block, abc);
-//	}
-//	print_vec(c_block);
-//	int m1 = unload(c_block);
-//	int m2 = unload2(c_block);
-//	printf("message: %d, \n", m1);//, m2);
-//
-//	for(i = 0; i < 20; i++) {
-//		int start_index = i*3;
-//		if(start_index > 31)
-//			curr_symbol = (m2 >> (28-(start_index-33))) & 0x07;//curr_symbol = f_gray_code[(message2 >> (28-(start_index-33))) & 0x07];
-//		else if(start_index > 29)
-//			curr_symbol = ((m1 << 1) ^ ((m2 >> 31) % 2)) & 0x07;//f_gray_code[((message1 << 1) ^ ((message2 >> 31) % 2)) & 0x07];
-//		else
-//			curr_symbol = (m1 >> (29-start_index)) & 0x07;//f_gray_code[(message1 >> (29-start_index)) & 0x07];
-//		printf("curr_symbol: %d, curr_symbol >> 1: %d \n", curr_symbol, curr_symbol >> 1);
-//		vit_dec_bmh(curr_symbol >> 1);
-//		vit_dec_ACS(0);
-//		vit_dec_ACS(1);
-//		vit_dec_ACS(2);
-//		vit_dec_ACS(3);
-//		update_paths();
-//
-//		printf("curr_symbol: %d, curr_symbol mod 2: %d \n", curr_symbol, curr_symbol % 2);
-//		vit_dec_bmh(curr_symbol % 2);
-//		vit_dec_ACS(0);
-//		vit_dec_ACS(1);
-//		vit_dec_ACS(2);
-//		vit_dec_ACS(3);
-//		update_paths();
-//	}
-//	printf("done \n \n \n");
-//	vit_dec_get(rec_message);
-//	print_vec(rec_message);
+	clear_vec(p_block);
+	load(p_block, 0xF35AC);
+	add_CRC(p_block,32);
+	print_vec(p_block);
+	clear_vec(c_block);
+	for(i = 0; i < 40; i++) {
+		unsigned short abc = pop(p_block);
+//		printf("bit: %u, ", abc);
+		encode(c_block, abc);
+	}
+	print_vec(c_block);
+	int m1 = unload(c_block);
+	int m2 = unload2(c_block);
+	printf("message: %d, \n", m1);//, m2);
+
+	for(i = 0; i < 20; i++) {
+		int start_index = i*3;
+		if(start_index > 31)
+			curr_symbol = (m2 >> (28-(start_index-33))) & 0x07;//curr_symbol = f_gray_code[(message2 >> (28-(start_index-33))) & 0x07];
+		else if(start_index > 29)
+			curr_symbol = ((m1 << 1) ^ ((m2 >> 31) % 2)) & 0x07;//f_gray_code[((message1 << 1) ^ ((message2 >> 31) % 2)) & 0x07];
+		else
+			curr_symbol = (m1 >> (29-start_index)) & 0x07;//f_gray_code[(message1 >> (29-start_index)) & 0x07];
+		printf("curr_symbol: %d, curr_symbol >> 1: %d \n", curr_symbol, curr_symbol >> 1);
+		vit_dec_bmh(curr_symbol >> 1);
+		vit_dec_ACS(0);
+		vit_dec_ACS(1);
+		vit_dec_ACS(2);
+		vit_dec_ACS(3);
+		update_paths();
+
+		printf("curr_symbol: %d, curr_symbol mod 2: %d \n", curr_symbol, curr_symbol % 2);
+		vit_dec_bmh(curr_symbol % 2);
+		vit_dec_ACS(0);
+		vit_dec_ACS(1);
+		vit_dec_ACS(2);
+		vit_dec_ACS(3);
+		update_paths();
+	}
+	printf("done \n \n \n");
+	vit_dec_get(rec_message);
+	print_vec(rec_message);
+	printf("CRC?: %d \n", check_CRC(rec_message,32));
 
 //	int test1 = (0xE9 << 8) + 0xC7;
 //	load(p_block,test1);
