@@ -9,6 +9,7 @@
 
 // convolutional encoder
 void updateState(unsigned char n);
+void setPuncturing(short s);
 void clearState();
 void setState(short s);
 short getState();

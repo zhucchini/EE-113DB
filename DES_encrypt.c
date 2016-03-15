@@ -1,5 +1,10 @@
 #include "bit_vector.h"
 #include "DES_encrypt.h"
+#include <math.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 char s_box1[64] =  { 14,4,13,1,2,15,11,8,3,10,6,12,5,9,0,7,
 					 0,15,7,4,14,2,13,1,10,6,12,11,9,5,3,8,
@@ -62,75 +67,85 @@ void feistel_sub(bv_t bv, short round) {
 
 	int i;
 	for(i = 0; i < 8; i++) {
-	indices += get_bit(bv,(4*i-1)%32) << i*2;
-	indices += get_bit(bv,(4*i+1)%32) << i*2+1;
+		indices += get_bit(bv,(4*i-1)%32) << (i*2);
+		indices += get_bit(bv,(4*i+1)%32) << (i*2+1);
 	}
 
 	indices ^= e_round_key[round];
 	int temp = unload(bv)^m_round_key[round];
+	int temp_vec = 0;
 
 	clear_vec(bv);
 	short index1 = indices & 0x03;
 	short index2 = temp & 0x0F;
-	linear_append(bv,s_box1[8*index1+index2]);
+	temp_vec ^= s_box1[8*index1+index2];
+	//linear_append(bv,s_box1[8*index1+index2]);
 	index1 = (indices >> 2) & 0x03;
 	index2 = (indices >> 4) & 0x0F;
-	linear_append(bv,s_box2[8*index1+index2]);
+	temp_vec ^= s_box2[8*index1+index2] << 4;
+	//linear_append(bv,s_box2[8*index1+index2]);
 	index1 = (indices >> 4) & 0x03;
 	index2 = (indices >> 8) & 0x0F;
-	linear_append(bv,s_box3[8*index1+index2]);
+	temp_vec ^= s_box3[8*index1+index2] << 8;
+	//linear_append(bv,s_box3[8*index1+index2]);
 	index1 = (indices >> 6) & 0x03;
 	index2 = (indices >> 12) & 0x0F;
-	linear_append(bv,s_box4[8*index1+index2]);
+	temp_vec ^= s_box4[8*index1+index2] << 12;
+	//linear_append(bv,s_box4[8*index1+index2]);
 	index1 = (indices >> 8) & 0x03;
 	index2 = (indices >> 16) & 0x0F;
-	linear_append(bv,s_box5[8*index1+index2]);
+	temp_vec ^= s_box5[8*index1+index2] << 16;
+	//linear_append(bv,s_box5[8*index1+index2]);
 	index1 = (indices >> 10) & 0x03;
 	index2 = (indices >> 20) & 0x0F;
-	linear_append(bv,s_box6[8*index1+index2]);
+	temp_vec ^= s_box6[8*index1+index2] << 20;
+	//linear_append(bv,s_box6[8*index1+index2]);
 	index1 = (indices >> 12) & 0x03;
 	index2 = (indices >> 24) & 0x0F;
-	linear_append(bv,s_box7[8*index1+index2]);
+	temp_vec ^= s_box7[8*index1+index2] << 24;
+	//linear_append(bv,s_box7[8*index1+index2]);
 	index1 = (indices >> 14) & 0x03;
 	index2 = (indices >> 28) & 0x0F;
-	linear_append(bv,s_box8[8*index1+index2]);
-
+	temp_vec ^= s_box8[8*index1+index2] << 28;
+	//linear_append(bv,s_box8[8*index1+index2]);
+	load(bv, temp_vec);
 }
 
 void feistel_perm(bv_t bv) {
 	int temp = 0;
-	temp &= (int)get_bit(bv,permutation[0]);
-	temp &= (int)get_bit(bv,permutation[1]) << 1;
-	temp &= (int)get_bit(bv,permutation[2]) << 2;
-	temp &= (int)get_bit(bv,permutation[3]) << 3;
-	temp &= (int)get_bit(bv,permutation[4]) << 4;
-	temp &= (int)get_bit(bv,permutation[5]) << 5;
-	temp &= (int)get_bit(bv,permutation[6]) << 6;
-	temp &= (int)get_bit(bv,permutation[7]) << 7;
-	temp &= (int)get_bit(bv,permutation[8]) << 8;
-	temp &= (int)get_bit(bv,permutation[9]) << 9;
-	temp &= (int)get_bit(bv,permutation[10]) << 10;
-	temp &= (int)get_bit(bv,permutation[11]) << 11;
-	temp &= (int)get_bit(bv,permutation[12]) << 12;
-	temp &= (int)get_bit(bv,permutation[13]) << 13;
-	temp &= (int)get_bit(bv,permutation[14]) << 14;
-	temp &= (int)get_bit(bv,permutation[15]) << 15;
-	temp &= (int)get_bit(bv,permutation[16]) << 16;
-	temp &= (int)get_bit(bv,permutation[17]) << 17;
-	temp &= (int)get_bit(bv,permutation[18]) << 18;
-	temp &= (int)get_bit(bv,permutation[19]) << 19;
-	temp &= (int)get_bit(bv,permutation[20]) << 20;
-	temp &= (int)get_bit(bv,permutation[21]) << 21;
-	temp &= (int)get_bit(bv,permutation[22]) << 22;
-	temp &= (int)get_bit(bv,permutation[23]) << 23;
-	temp &= (int)get_bit(bv,permutation[24]) << 24;
-	temp &= (int)get_bit(bv,permutation[25]) << 25;
-	temp &= (int)get_bit(bv,permutation[26]) << 26;
-	temp &= (int)get_bit(bv,permutation[27]) << 27;
-	temp &= (int)get_bit(bv,permutation[28]) << 28;
-	temp &= (int)get_bit(bv,permutation[29]) << 29;
-	temp &= (int)get_bit(bv,permutation[30]) << 30;
-	temp &= (int)get_bit(bv,permutation[31]) << 31;
+	temp ^= (int)get_bit(bv,permutation[0]);
+	temp ^= (int)get_bit(bv,permutation[1]) << 1;
+	temp ^= (int)get_bit(bv,permutation[2]) << 2;
+	temp ^= (int)get_bit(bv,permutation[3]) << 3;
+	temp ^= (int)get_bit(bv,permutation[4]) << 4;
+	temp ^= (int)get_bit(bv,permutation[5]) << 5;
+	temp ^= (int)get_bit(bv,permutation[6]) << 6;
+	temp ^= (int)get_bit(bv,permutation[7]) << 7;
+	temp ^= (int)get_bit(bv,permutation[8]) << 8;
+	temp ^= (int)get_bit(bv,permutation[9]) << 9;
+	temp ^= (int)get_bit(bv,permutation[10]) << 10;
+	temp ^= (int)get_bit(bv,permutation[11]) << 11;
+	temp ^= (int)get_bit(bv,permutation[12]) << 12;
+	temp ^= (int)get_bit(bv,permutation[13]) << 13;
+	temp ^= (int)get_bit(bv,permutation[14]) << 14;
+	temp ^= (int)get_bit(bv,permutation[15]) << 15;
+	temp ^= (int)get_bit(bv,permutation[16]) << 16;
+	temp ^= (int)get_bit(bv,permutation[17]) << 17;
+	temp ^= (int)get_bit(bv,permutation[18]) << 18;
+	temp ^= (int)get_bit(bv,permutation[19]) << 19;
+	temp ^= (int)get_bit(bv,permutation[20]) << 20;
+	temp ^= (int)get_bit(bv,permutation[21]) << 21;
+	temp ^= (int)get_bit(bv,permutation[22]) << 22;
+	temp ^= (int)get_bit(bv,permutation[23]) << 23;
+	temp ^= (int)get_bit(bv,permutation[24]) << 24;
+	temp ^= (int)get_bit(bv,permutation[25]) << 25;
+	temp ^= (int)get_bit(bv,permutation[26]) << 26;
+	temp ^= (int)get_bit(bv,permutation[27]) << 27;
+	temp ^= (int)get_bit(bv,permutation[28]) << 28;
+	temp ^= (int)get_bit(bv,permutation[29]) << 29;
+	temp ^= (int)get_bit(bv,permutation[30]) << 30;
+	temp ^= (int)get_bit(bv,permutation[31]) << 31;
+
 	load(bv,temp);
 
 //	set_bit(temp_vec,0,get_bit(bv,permutation[0]));
@@ -171,8 +186,7 @@ void feistel_perm(bv_t bv) {
 
 void feistel_round(bv_t left, bv_t right, short round) {
 	int temp = unload(left);
-	bv_free(left);
-	left = right;
+	copy_vec(left, right);
 	feistel_sub(right, round);
 	feistel_perm(right);
 	temp ^= unload(right);

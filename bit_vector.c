@@ -1,11 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "bit_vector.h"
-
-#define CODE_LENGTH      2
-#define NUM_BITS        8
-
-short state = 0;
+#include <limits.h>
 
 // BITVECTOR CONSTRUCTOR --------------------------------------------------------------//
 /* void bv_new(bv_t, short)
@@ -47,6 +43,25 @@ void bv_new(bv_t bv, short len) {
 
 
 // BITVECTOR FUNCTIONS ---------------------------------------------------------------//
+/* void copy_vec(bv_t, bv_t)
+ * makes a copy of the src bitvector and places it in dest
+ *
+ * bv: a pointer to the bitvector object
+ */
+void copy_vec(bv_t dest, bv_t src) {
+    unsigned short i, len = src->len;
+    unsigned char* bits = src->bits;
+
+    resize(dest, src->num_bits);
+
+    // copy all the data bitvector
+    for (i = 0; i < len; i++) {
+        dest->bits[i] = bits[i];
+    }
+    dest->num_bits = src->num_bits;
+    dest->len = len;
+}
+
 /* void print_vec(bv_t)
  * prints out characters bits in little endian, and characters in the order
  * they were placed
@@ -82,6 +97,7 @@ void print_vec(bv_t bv) {
  */
 void clear_vec(bv_t bv) {
     bv->num_bits = 0;
+    resize(bv,1);
 }
 
 /* void append(bv_t, char)
@@ -114,7 +130,7 @@ void append(bv_t bv, char c, short start) {
     }
 }
 
-/* void bit_append(bv_t, char)
+/* void bit_append(bv_t, unsigned char)
  *   adds elements to bitvec with dynamic allocation
  *   add only as many bits as are significant
  *
@@ -151,6 +167,27 @@ void linear_append(bv_t bv, char c) {
     append(bv, c, start);
 }
 
+/* void set_bit(bv_t, short, unsigned short)
+ *   sets the bit at pos to a certain value
+ *
+ * bv:  a pointer to the bitvector object
+ * pos: pos for where to set the bit
+ * c:   a char containing the bit to append
+ */
+void set_bit(bv_t bv, short pos, unsigned short c) {
+    unsigned char byte;
+    short l_pos = pos / 8, b_pos = pos % 8;
+
+    // get the byte containing the bit to change
+    byte = bv->bits[l_pos];
+
+    // set the desired bit to the desire value
+    byte ^= (-c ^ byte) & (1 << b_pos);
+
+    // set the byte
+    bv->bits[l_pos] = byte;
+}
+
 /* void resize(bv_t, short)
  *   resizes the char array to support a different number of bits
  *
@@ -179,8 +216,8 @@ void resize(bv_t bv, short size) {
  * shift: number of bytes to shift the bits
  */
 void shift_right(bv_t bv, short shift) {
-    short num_bits = bv->num_bits,
-    	  leftover = num_bits == 0 ? shift - 8 : shift - num_bits,
+    short num_bits = bv->num_bits % 8,
+          leftover = num_bits == 0 ? shift - 8 : shift - num_bits,
           len = bv->len;
 
     if (leftover > 0) {
@@ -344,8 +381,8 @@ void load(bv_t bv, int d) {
     int mask = 0xFF;
     unsigned char c;
 
-    //resize(bv, 32);
-    unsigned char* bits = bv->bits;
+    resize(bv, 32);
+    //unsigned char* bits = bv->bits;
 
     clear_vec(bv);
     c = (unsigned char) (d >> 24);
@@ -363,8 +400,6 @@ void load(bv_t bv, int d) {
     c = (unsigned char) (d & mask);
     //bits[3] = c;
     linear_append(bv,c);
-
-
 }
 
 /* int unload(bv_t)
@@ -385,7 +420,32 @@ int unload(bv_t bv) {
     return d;
 }
 
-/* unsigned short get(bv_t, short, short)
+int unload2(bv_t bv) {
+	int d = 0;
+
+	unsigned char* bits = bv->bits;
+
+	d += bits[4]  << 24;
+	d += bits[5] << 16;
+	d += bits[6] << 8;
+	d += bits[7];
+
+	return d;
+}
+
+int vit_unload(bv_t bv) {
+	int d = 0;
+
+	unsigned char* bits = bv->bits;
+
+	d += bits[3]  << 24;
+	d += bits[2] << 16;
+	d += bits[1] << 8;
+	d += bits[0];
+
+	return d;
+}
+/* unsigned char get(bv_t, short, short)
  *   gets the bits between the start and end as requested
  *
  * bv:    a pointer to the bitvector object
@@ -395,9 +455,8 @@ int unload(bv_t bv) {
 unsigned char get(bv_t bv, short start, short end) {
     unsigned char byte;
     unsigned char* bits = bv->bits;
-    short a, b;
-    short l_pos = bv->len - 1, num_bits = bv->num_bits,
-          leftover = (8 - (num_bits % 8)) % 8;
+    short a;
+    short num_bits = bv->num_bits;
 
     // make sure that start + end don't cause out of bound errors
     if (start < 0 || end > num_bits)
@@ -419,23 +478,39 @@ unsigned char get(bv_t bv, short start, short end) {
     short c_1 = start/8;
     short c_2 = end/8;
     a = (start % 8);
-    b = (end % 8);
 
     // if the requested bits overlap two chars
     if(c_1 != c_2) {
-    	byte = (bits[c_1] >> a);
-    	byte += (bits[c_2] << (8-a)) & ((1 << (len+1)) - 1);
+        byte = (bits[c_1] >> a);
+        byte += (bits[c_2] << (8-a)) & ((1 << (len+1)) - 1);
 
-    	return byte;
+        return byte;
     } else {
-    	if (c_1 == l_pos) {
-    		a -= leftover;
-    		b -= leftover;
-    	}
-    	byte = bits[c_1] >> a;
+        byte = bits[c_1];
+        byte >>= a;
     }
 
     return byte & ((1 << (len+1)) - 1);
+}
+
+/* unsigned short get_bit(bv_t, short)
+ *   gets the bit at pos
+ *
+ * bv:  a pointer to the bitvector object
+ * pos: position of the bit to get
+ */
+unsigned char get_bit(bv_t bv, short pos) {
+    unsigned char byte;
+    short l_pos = pos / 8, b_pos = pos % 8;
+
+    // get the byte containing the desired bit
+    byte = bv->bits[l_pos];
+
+    // get the desired bit
+    byte >>= b_pos;
+    byte &=  1;
+
+    return byte;
 }
 
 /* unsigned short pop(bv_t)
@@ -444,8 +519,8 @@ unsigned char get(bv_t bv, short start, short end) {
  * bv:    a pointer to the bitvector object
  */
 unsigned short pop(bv_t bv) {
-    short num_bits = bv->num_bits,
-          leftover = (num_bits - 1) % 8;
+    short num_bits = bv->num_bits - 1,
+          leftover = (num_bits) % 8;
 
     unsigned short r = bv->bits[num_bits/8];
     r &= (1 << leftover);
@@ -456,143 +531,178 @@ unsigned short pop(bv_t bv) {
 }
 
 
-// CONVOLUTIONAL CODE FUNCTIONS ------------------------------------------------------//
-/* void updateState(unsigned char)
- *   updates the state based on the current bit
- *
- * n can take the values:
- *    0             update state with a 0
- *    1             update state with a 1
- *    otherwise     state will be set to 0
+
+
+
+// MAIN AND OTHER FUNCTIONS ----------------------------------------------------------//
+// int main() {
+//     /*
+//     bv_t p_block = malloc (sizeof(struct bitvec));
+//     bv_t e_block = malloc (sizeof(struct bitvec));
+//     bv_t rs_block = malloc (sizeof(struct bitvec));
+//     bv_t c_block = malloc (sizeof(struct bitvec));
+
+//     bv_new(p_block, 32);
+//     bv_new(e_block, 1);
+//     bv_new(rs_block, 1);
+//     bv_new(c_block, 1);
+
+//     int test1 = (0xE9 << 8) + 0xC7;
+//     load (p_block,test1);
+//     printf("%d : %d \n", test1, unload(p_block));
+//     print_vec(p_block);
+
+//     unsigned char test2 = get(p_block,16,21);
+//     printf("start: 16, end: 21, result: ");
+//     printBits(&test2, 1, 8);
+
+//     test2 = get(p_block,25,31);
+//     printf("start: 25, end: 31, result: ");
+//     printBits(&test2, 1, 8);
+
+//     test2 = get(p_block,22,26);
+//     printf("start: 22, end: 26, result: ");
+//     printBits(&test2, 1, 8);
+
+//     bv_free(p_block);
+//     free(p_block);
+
+//     bv_free(e_block);
+//     free(e_block);
+
+//     bv_free(rs_block);
+//     free(rs_block);
+
+//     bv_free(c_block);
+//     free(c_block);
+
+//     unsigned int temp = 0x7fffffff;
+//     printf("test: %d  \n", temp);
+
+//     unsigned int temp2 = temp*(120.0/MAX_SPEED);
+//     printf("test2: %d \n", temp2);
+
+//     temp2 = temp*(32.4/MAX_SPEED);
+//     printf("test2: %d \n", temp2);
+
+//     float temp3 = (float)temp2/(float)temp*MAX_SPEED;
+//     printf("test3: %f \n", temp3);
+//     */
+
+
+//     bv_t bv = malloc (sizeof(struct bitvec));
+//     bv_new(bv, 8);
+
+//     bv_t dest = malloc (sizeof(struct bitvec));
+//     bv_new(dest, 8);
+
+//     // // TEST: linear_append + print_vec
+//     // linear_append(bv, 0x2);
+//     // linear_append(bv, 'p');
+//     // linear_append(bv, 'p');
+//     // linear_append(bv, 'l');
+//     load(bv, 0x345);
+//     printf("bv: ");
+//     print_vec(bv);
+
+//     // add_CRC(bv, bv->num_bits);
+//     // printf("result: ");
+//     // print_vec(bv);
+
+//     // // TEST: pop
+//     unsigned short r;
+//     for (int i = 0; i < 32; i++) {
+//         r = pop(bv);
+//         printf("r: %d, ", r);
+//         print_vec(bv);
+//     }
+
+//     // TEST: conv_encode
+//     // conv_encode(dest, bv);
+//     // print_vec(dest);
+
+//     // // TEST: get
+//     // unsigned char temp = get(bv, 2, 6);
+//     // printBits(&temp, 1, 8);
+
+//     // // TEST: shift_right
+//     // shift_right(bv, 10);
+//     // print_vec(bv);
+
+//     // // TEST: circ_append
+//     // circ_append(bv, 'm');
+//     // print_vec(bv);
+
+//     // // TEST: load
+//     // load(bv, 0x74F);
+//     // print_vec(bv);
+
+//     // linear_append(dest, 'l');
+//     // linear_append(dest, 'p');
+//     // linear_append(dest, 'p');
+//     // printf("dest: ");
+//     // print_vec(dest);
+
+//     // bitvec_xor(dest, bv);
+//     // printf("dest ^ bv: ");
+//     // print_vec(dest);
+
+//     // int temp = hammingDistance(bv, dest);
+//     // printf("hamming distance: %d \n", temp);
+
+//     // int load = unload(bv);
+//     // printf("load: %d \n", load);
+
+//     bv_free(bv);
+//     free(bv);
+
+//     bv_free(dest);
+//     free(dest);
+// }
+
+/* void add_CRC(bv_t, short)
+ * 	appends the CRC-8-SAE-J1850 ED code
+ * 	to data of size int32 or less
  */
-void updateState(unsigned char n) {
-    if (n != 0 && n != 1) {
-        state = 0;
-        return;
-    }
+void add_CRC(bv_t bv, short len) {
+    unsigned int CRC_8 = 285;
+    unsigned long remainder = unload(bv);
+    short i;
 
-    state >>= (CODE_LENGTH - 1);
-    state += (n << (CODE_LENGTH - 1));
-}
+    remainder <<= 8;
 
-/* void encode(bv_t, unsigned char)
- *   helper function to compute the convolutional code
- *
- * dest: bitvector that we append to
- * bit:  bit that we should add
- */
-void encode(bv_t dest, unsigned char bit) {
-    unsigned char u = bit;
-    short i, b;
-
-    // just in case we pass in bit > 1
-    bit %= 2;
-
-    // calculate the first parity bit
-    // p0 = u + x[1] + x[2] + ... + x[CODE_LENGTH-1]
-    for (i = CODE_LENGTH - 1; i >= CODE_LENGTH-2; i--) {
-        b = (state & (1 << i)) >> i;
-        u += b;
-    }
-
-    // add the first parity bit to the destination
-    u %= 2;
-    bit_append(dest, u);
-
-    // calculate the rest of the parity bits
-    // p[n] = u + x[n]
-    for (i = 0; i < CODE_LENGTH - 1; i++) {
-        b = (state & (1 << i)) >> i;
-        u = (bit + b) % 2;
-
-        bit_append(dest, u);
-    }
-}
-
-/* void conv_encode(bv_t, bv_t)
- *   adds parity bits to the code
- *
- * dest: location of the bitvector with parity bits added
- *       space to be allocated in parent function
- * src:  original bitvector without the parity bits
- */
-void conv_encode(bv_t dest, bv_t src) {
-    unsigned char byte;
-    short i, j;
-    short len = src->len, num_bits = src->num_bits,
-          leftover = 8 + num_bits - (len * 8), start = 7;
-
-    // clear the destination to make sure that it's empty when we start adding
-    clear_vec(dest);
-
-    // loop through each of the chars in the chars array
-    for (i = 0; i < len; i++) {
-        if (i == len-1)
-            start = leftover - 1;
-
-        // loop through each of the bits in the bit array
-        for (j = start; j >= 0; j--) {
-            byte = src->bits[i] & (1<<j);
-            byte >>= j;
-
-            encode(dest, byte);
-            updateState(byte);
+    for (i = len-1; i >= 0; i--) {
+        if ((remainder >> (i+8))%2 == 1) {
+            remainder ^= CRC_8 << (i);
         }
     }
+    unsigned char r = 0xFF & remainder;
+    linear_append(bv, r);
 }
 
-/* void puncture(bv_t, bv_t)
- *   punctures the code
- *
- * dest: bitvector to place the punctured code in
- * src:  bitvector containing the encoded bits
+/* short add_CRC(bv_t, short)
+ * 	checks the CRC-8-SAE-J1850 ED code
+ * 	returns 1 (TRUE) or 0 (FALSE)
  */
-void puncture(bv_t dest, bv_t src) {
-    unsigned char byte;
-    short i, j, count = 0;
-    short len = src->len, num_bits = src->num_bits,
-          leftover = 8 + num_bits - (len * 8), start = 7;
+short check_CRC(bv_t bv, short len) {
+	char CRC = get(bv,len,len+7);
 
-    // clear the destination to make sure that it's empty when we start adding
-    clear_vec(dest);
+    unsigned int CRC_8 = 285;
+    unsigned long remainder = unload(bv);
+    short i;
 
-    /* do things based on state
-     * for RATE = 2 and RATE = 3, the matrices act essentially the same way:
-     *
-     * for RATE = 2:
-     *     the matrix is:
-     *          1   0
-     *          1   1
-     *     where the 3rd bit is taken out
-     *
-     * for RATE = 3:
-     *     the matrix is:
-     *          1   0   1
-     *          1   1   0
-     *     where the 3rd bit & every 6th bit is taken out
-     *
-     * these essentially lead up to the same result, so i'm not going to distinguish
-     * between the two
-     */
-    for (i = 0; i < len; i++) {
-        if (i == len-1)
-            start = leftover - 1;
+    remainder <<= 8;
 
-        // loop through each of the bits in the bit array
-        for (j = start; j >= 0; j--) {
-            // increment the count
-            count++;
-
-            // append only when it's not the 3rd bit (for every 4 bits)
-            if (count % 4 != 3) {
-                byte = src->bits[i] & (1<<j);
-                byte >>= j;
-
-                bit_append(dest, byte);
-            }
+    for (i = len-1; i >= 0; i--) {
+        if ((remainder >> (i+8))%2 == 1) {
+            remainder ^= CRC_8 << (i);
         }
     }
+    unsigned char r = 0xFF & remainder;
+
+    return CRC == r;
 }
+
 
 /* short hammingDistance(bv_t, bv_t)
  *   calculates the hamming distance between the two bitvectors
@@ -607,11 +717,7 @@ unsigned short hammingDistance(bv_t bv1, bv_t bv2) {
     bv_new(temp, num_bits);
 
     // copy all the data to the temporary bitvector
-    for (i = 0; i < len; i++) {
-        temp->bits[i] = bv1->bits[i];
-    }
-    temp->num_bits = num_bits;
-    temp->len = bv1->len;
+    copy_vec(temp, bv1);
 
     // xor it with the second bitvector
     bitvec_xor(temp, bv2);
@@ -636,7 +742,6 @@ unsigned short hammingDistance(bv_t bv1, bv_t bv2) {
 
     return count;
 }
-
 
 void printBits(char* const string, int const n, int bitsToRead) {
     unsigned char* b = (unsigned char*) string;

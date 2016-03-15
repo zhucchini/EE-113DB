@@ -4,6 +4,11 @@
 #include <ctype.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include "bit_vector.h"
+#include "conv_encoder.h"
+#include "viterbi.h"
+#include "DES_encrypt.h"
 
 // DEFINITIONS ---------------------------------------------------//
 #define N		   		480
@@ -13,9 +18,9 @@
 #define FALSE	   		0
 #define PI			    3.14159265358979
 #define A3				220.0 // in Hz
-#define SAMPLING_FREQ	48000
+#define SAMPLING_FREQ	24000
 #define PRECISION		36
-#define PROCESS_TIME	6
+#define PROCESS_TIME	21 // for receiver to do demodulation, viterbi, CRC ED
 #define NUM_SECTIONS	2
 #define SYMBOL_LENGTH	3
 #define NUM_SYMBOLS		8 //2^SYMBOL_LENGTH
@@ -23,11 +28,12 @@
 #define DATA_POINTS		1000
 //#define RS_TOTAL		??
 //#define RS_SENT		??
-#define SYM_PER_DATA	16
+#define SYM_PER_DATA	20 // (1/code_rate)*(32 + CRC_size)/SYMBOL_LENGTH
 //#define ARQ_SYMS		??
 //#define REPEAT_SYMS	??
 #define MAX_SPEED		120.0
 #define INT_MAX			0x7FFFFFFF
+#define DEBUG			0
 
 
 // NOT CONSTANTS -----------------------------------------------------//
@@ -36,6 +42,7 @@ int   periods[PRECISION];
 int   f_gray_code[] = {0,1,3,2,6,7,5,4};
 int   r_gray_code[] = {0,1,3,2,7,6,4,5};
 float dial;
+float display;
 
 // RECEIVER VARIABLES -----------------------------------------------------//
 int flag = FALSE;
@@ -43,6 +50,8 @@ int peak_index;
 int index = 0;
 int n = 0;
 int iter = 0;
+
+short rec_init = TRUE;
 
 float target[NUM_SYMBOLS]; //symbol frequencies
 int   targetPeriod[NUM_SYMBOLS];
@@ -64,7 +73,7 @@ int  curr_rec_symbol;
 char curr_rec_bitvec;
 
 char buffer[3];
-int  rec_message[60] = {0};
+bv_t rec_message;
 int  rec_message_index = 0;
 int  rec_transmission_index = 0;
 
@@ -76,7 +85,8 @@ float amplitude = 50000;
 int   curr_symbol = 0;
 int   curr_bitvec = 0;
 int   counter = 0;
-unsigned int   message = 0;
+int   message1 = 0;
+int   message2 = 0;
 float symbols[25];
 int   message_len = 25;
 int   message_index = 0;
@@ -93,6 +103,11 @@ bv_t  e_block;
 bv_t  rs_block;
 bv_t  c_block;
 
+bv_t  left;
+bv_t  right;
+int next_right;
+int temp_left;
+
 unsigned char* bit_ptr;
 
 
@@ -108,113 +123,203 @@ inline void findMaxCorrelation(void);
 
 inline void iirso_filter(void);
 
-inline void bitvec_to_symbol(void);
-
-inline void symbol_to_bitvec(void);
-
 // FUNCTIONS -----------------------------------------------------//
 
 interrupt void interrupt4(void) { // interrupt service routine
 	left_sample = input_left_sample();
 
 
-
-
 	// ------------------------------------------------BEGIN RECEIVER ------------------------------------------------------------------------------------
-	window0[index] = left_sample;
+		window0[index] = left_sample;
 
-	//iirso_filter();
+		//iirso_filter();
 
-	//*** TODO Change detection to PLL
+		//*** TODO Change detection to PLL
 
-	if(index > N/2 && index < N-PROCESS_TIME) {
-		updateCorrelation();
-	} else if(index >= N-PROCESS_TIME) {
-		findMaxCorrelation();
-		// ratio = target[id]/scale[max]; //auto-tune stuff
+		if(index > N/2 && index < N-PROCESS_TIME) {
+			updateCorrelation();
+		} else if(index >= N-PROCESS_TIME && !rec_init) {
+			if(index < N-(PROCESS_TIME-6)) {
+				findMaxCorrelation();
+			} else if (index == N-(PROCESS_TIME-6)){
+				vit_dec_bmh(r_gray_code[id] >> 1);
+			} else if (index == N-(PROCESS_TIME-7)){
+				vit_dec_ACS(0);
+			} else if (index == N-(PROCESS_TIME-8)){
+				vit_dec_ACS(1);
+			} else if (index == N-(PROCESS_TIME-9)){
+				vit_dec_ACS(2);
+			} else if (index == N-(PROCESS_TIME-10)){
+				vit_dec_ACS(3);
+			} else if (index == N-(PROCESS_TIME-11)){
+				update_paths();
+			} else if (index == N-(PROCESS_TIME-12)){
+				vit_dec_bmh((r_gray_code[id]) % 2);
+			} else if (index == N-(PROCESS_TIME-13)){
+				vit_dec_ACS(0);
+			} else if (index == N-(PROCESS_TIME-14)){
+				vit_dec_ACS(1);
+			} else if (index == N-(PROCESS_TIME-15)){
+				vit_dec_ACS(2);
+			} else if (index == N-(PROCESS_TIME-16)){
+				vit_dec_ACS(3);
+			} else if (index == N-(PROCESS_TIME-17)){
+				update_paths();
+				rec_message_index++;
+			} else if (rec_message_index == SYM_PER_DATA) {
+				if (index == N-(PROCESS_TIME-18)) {
+					vit_dec_get(rec_message);
+					if (DEBUG) {
+						printf("rec_message: ");
+						print_vec(rec_message);
+					}
+				} else if (index == N-(PROCESS_TIME-19)) {
+					// if (check_CRC(rec_message,32)) {
+					int temp300 = vit_unload(rec_message);
+					display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
+					if (DEBUG) {
+						printf("vit_unload: %d, display: %f \n \n \n", temp300, display);
+					}
+					// }
+				} else if (index == N-(PROCESS_TIME-20)) {
+					vit_dec_reset();
+					rec_message_index = 0;
+				}
+			}
 
-		if(res_index < N && index == N-1) {		//debugging purposes
-			result[res_index] = target[id];
-			res_index++;
+
+
+	//		if(res_index < N && index == N-1) {		//debugging purposes
+	//			result[res_index] = target[id];
+	//			res_index++;
+	//		}
+
+			//add to message (ED and EC go here)
+	//		if(rec_message_index < message_len && index == N-1) {		//add to message
+	//			rec_message[rec_message_index] = r_gray_code[id];
+	//			rec_message_index++;
+	//		}
+
+
+		} //else { //first half of window for processing
+	//
+	//	}
+
+		//*** TODO Implement ARQ and Viterbi Decode here ***
+
+
+		//*** TODO Clock Detection (using ZCR?)
+
+		index++;
+		index = index % N;
+
+		// -------------------------------------------------END RECEIVER----------------------------------------------------------------------------------------
+
+
+
+
+
+
+		// -----------------------------------------------BEGIN TRANSMITTER--------------------------------------------------------------------------------------
+		phi += (target[7-curr_symbol]/(float)SAMPLING_FREQ)*2.0*PI;
+		if(phi > 2.0*PI) phi -= 2.0*PI;
+
+		//*** TODO add preamble and key exchange (use ElGamal or RSA-256)
+
+		//*** TODO implement frequency hopping
+
+		//*** TODO Reed-Solomon encoding for HARQ II
+
+		if(/*!arq_in_prog &&*/ rec_ready) {
+			if(counter == 0) {
+				// get message from sensor (in this case dial
+				// represent float data as an int
+				message1 = (int) INT_MAX * (dial/MAX_SPEED);
+				load(p_block,message1);
+				clear_vec(c_block);
+				clearState();
+				if (DEBUG) {
+					printf("message1: %d, p_block: ", message1);
+					print_vec(p_block);
+				}
+
+				// begin encryption (DES OFB mode)
+				//next_right = unload(right);
+
+				//debugging
+				//debug1 = unload(p_block);
+			}
+			else if(counter >= 1 && counter < 33) { // generate DES 'one-time pad' (16 rounds)
+				if(counter%2 == 1) {
+					//temp_left = unload(left);
+					//copy_vec(left, right);
+					//feistel_sub(right, (counter-1)/2);
+				}
+				else {
+					//feistel_perm(right);
+					//temp_left ^= unload(right);
+					//load(right, temp_left);
+				}
+
+			}
+			else if(counter == 33) { // xor with pad to get ciphertext
+	//			load(right, next_right);
+	//			copy_vec(e_block, p_block);
+	//			bitvec_xor(e_block, left);
+			}
+			else if(counter == 34) { //add CRC for ED
+				// add_CRC(p_block,32);
+				//add_CRC(e_block);
+				//RS_encode(e_block,rs_block);
+			}
+			else if(counter >= 35 && counter < 75){ //encode with conv encoder
+				//conv_encode(c_block, rs_block);
+				//conv_encode(c_block, p_block);
+				encode(c_block, pop(p_block));
+
+				if (DEBUG && counter == 74) {
+					printf("c_block: ");
+					print_vec(c_block);
+				}
+			}
+			else if(counter == 75) {
+				message1 = unload(c_block);
+				message2 = unload2(c_block);
+
+				// printf("message1: %d, message2: %d \n", message1, message2);
+				rec_ready = FALSE;
+			}
+
+		} else {
+			// printf("why? \n");
+			// transmission_index = 0;
+			// rec_ready = FALSE;
 		}
 
-		//add to message (ED and EC go here)
-		if(rec_message_index < message_len && index == N-1) {		//add to message
-			rec_message[rec_message_index] = r_gray_code[id];
-			rec_message_index++;
-		}
-
-
-	} //else { //first half of window for processing
-//
-//	}
-
-	//*** TODO Implement ARQ and Viterbi Decode here ***
-
-
-	//*** TODO Clock Detection (using ZCR?)
-
-	index++;
-	index = index % N;
-
-	// -------------------------------------------------END RECEIVER----------------------------------------------------------------------------------------
-
-
-
-
-
-
-	// -----------------------------------------------BEGIN TRANSMITTER--------------------------------------------------------------------------------------
-	phi += (target[7-curr_symbol]/(float)SAMPLING_FREQ)*2.0*PI;
-	if(phi > 2.0*PI) phi -= 2.0*PI;
-
-	//*** TODO add preamble and key exchange (use ElGamal)
-
-	//*** TODO implement frequency hopping
-
-	//*** TODO encoding here
-	if(!arq_in_prog && rec_ready) {
-		if(counter == 0) {
-			message = (int) INT_MAX * (dial/MAX_SPEED);
-			load(p_block,message);
-			//message_index++;
-			message_index = message_index%message_len;
-			//e_block = encrypt(p_block) //encryption
-			debug1 = unload(p_block);
-		}
-		else if(counter == 1) {
-			//RS_encode(c_block,rs_block);
-		}
-		else if(counter >= 2 && counter < 34){
-			//conv_encode(c_block, rs_block);
-			//conv_encode(c_block, p_block);
-			encode(c_block, pop(p_block));
-		}
-		else if(counter == 34) {
-			rec_ready = FALSE;
-		}
-
-	}
-	if(!arq_in_prog) {
 		if(counter == N-1) {
-			debug2 = get(c_block,transmission_index*3,transmission_index*3+2); //for debugging
-			curr_symbol = f_gray_code[get(c_block,transmission_index*3,transmission_index*3+2)];
-//			curr_symbol = message[message_index];
-//			message_index++;
-//			message_index = message_index%message_len;
+	//		debug2 = get(c_block,transmission_index*3,transmission_index*3+2); //for debugging
+	//		curr_symbol = f_gray_code[get(c_block,transmission_index*3,transmission_index*3+2)];
+			int start_index = transmission_index*3;
+			if(start_index > 31) {
+				curr_symbol = f_gray_code[(message2 >> (28-(start_index-33))) & 0x07];
+			} else if(start_index > 29) {
+				curr_symbol = f_gray_code[((message1 << 1) ^ ((message2 >> 31) % 2)) & 0x07];
+			} else {
+				curr_symbol = f_gray_code[(message1 >> (29-start_index)) & 0x07];
+			}
+
 			transmission_index++;
-			if(transmission_index == 9) {
+			if(transmission_index == SYM_PER_DATA) {
 				rec_ready = TRUE;
 				transmission_index = 0;
 			}
 			symbols[message_index] = target[7-curr_symbol];
+			rec_init = FALSE;
 		}
-	}
 
-	counter++;
-	counter = counter%N;
-	// ------------------------------------------------END TRANSMITTER---------------------------------------------------------------------------------------
-
+		counter++;
+		counter = counter%N;
+		// ------------------------------------------------END TRANSMITTER---------------------------------------------------------------------------------------
 
 
 	output_left_sample(amplitude*sin(phi));
@@ -240,6 +345,8 @@ int main(void) {
 		targetPeriod[i]=SAMPLING_FREQ/target[i];
 	}
 
+	setupDecoder();
+
 	p_block = malloc (sizeof(struct bitvec));
 	e_block = malloc (sizeof(struct bitvec));
 	rs_block = malloc (sizeof(struct bitvec));
@@ -249,20 +356,123 @@ int main(void) {
 	bv_new(rs_block, 1);
 	bv_new(c_block, 1);
 
+	right = malloc (sizeof (struct bitvec));
+	left = malloc (sizeof (struct bitvec));
+	bv_new(right,32);
+	bv_new(left,32);
+	load(right, rand()*rand());
+	load(left, rand()*rand());
+
+	rec_message = malloc (sizeof (struct bitvec));
+	bv_new(rec_message,32);
+
 	bit_ptr = p_block->bits;
 
-	int test1 = (0xE9 << 8) + 0xC7;
-	load(p_block,test1);
-	printf("%d : %d \n", test1, unload(p_block));
-	print_vec(p_block);
-	int test2 = get(p_block,16,18);
-	printf("%d \n", test2);
-	test2 = get(p_block,25,28);
-	printf("%d \n", test2);
-	test2 = get(p_block,22,26);
-	printf("%d \n", test2);
+	//load(p_block,0xF35AC);
+	//add_CRC(p_block,32);
+//	clear_vec(p_block);
+//	load(p_block, 0xF35AC);
+//	add_CRC(p_block,32);
+//	print_vec(p_block);
+//	clear_vec(c_block);
+//	for(i = 0; i < 40; i++) {
+//		unsigned short abc = pop(p_block);
+////		printf("bit: %u, ", abc);
+//		encode(c_block, abc);
+//	}
+//	print_vec(c_block);
+//	int m1 = unload(c_block);
+//	int m2 = unload2(c_block);
+//	printf("message: %d, \n", m1);//, m2);
+//
+//	for(i = 0; i < 20; i++) {
+//		int start_index = i*3;
+//		if(start_index > 31)
+//			curr_symbol = (m2 >> (28-(start_index-33))) & 0x07;//curr_symbol = f_gray_code[(message2 >> (28-(start_index-33))) & 0x07];
+//		else if(start_index > 29)
+//			curr_symbol = ((m1 << 1) ^ ((m2 >> 31) % 2)) & 0x07;//f_gray_code[((message1 << 1) ^ ((message2 >> 31) % 2)) & 0x07];
+//		else
+//			curr_symbol = (m1 >> (29-start_index)) & 0x07;//f_gray_code[(message1 >> (29-start_index)) & 0x07];
+//		printf("curr_symbol: %d, curr_symbol >> 1: %d \n", curr_symbol, curr_symbol >> 1);
+//		vit_dec_bmh(curr_symbol >> 1);
+//		vit_dec_ACS(0);
+//		vit_dec_ACS(1);
+//		vit_dec_ACS(2);
+//		vit_dec_ACS(3);
+//		update_paths();
+//
+//		printf("curr_symbol: %d, curr_symbol mod 2: %d \n", curr_symbol, curr_symbol % 2);
+//		vit_dec_bmh(curr_symbol % 2);
+//		vit_dec_ACS(0);
+//		vit_dec_ACS(1);
+//		vit_dec_ACS(2);
+//		vit_dec_ACS(3);
+//		update_paths();
+//	}
+//	printf("done \n \n \n");
+//	vit_dec_get(rec_message);
+//	print_vec(rec_message);
 
-	L138_initialise_intr(FS_48000_HZ,ADC_GAIN_24DB,DAC_ATTEN_0DB,LCDK_MIC_INPUT);
+//	int test1 = (0xE9 << 8) + 0xC7;
+//	load(p_block,test1);
+//	printf("%d : %d \n", test1, unload(p_block));
+//	//print_vec(p_block);
+//	int test2 = get(p_block,16,18);
+//	printf("%d \n", test2);
+//	test2 = get(p_block,25,28);
+//	printf("%d \n", test2);
+//	test2 = get(p_block,22,26);
+//	printf("%d \n", test2);
+
+
+
+//	print_vec(right);
+//	print_vec(left);
+//
+//	load(p_block, 0xFC4A78E5);
+//	print_vec(p_block);
+//
+//	int j;
+//	bv_t next_right = malloc (sizeof (struct bitvec));
+//	for(j = 0; j < 7; j ++) {
+//		bv_new(next_right,32);
+//		copy_vec(next_right, left);
+//
+//		for(i = 0; i < 16; i++) {
+//			feistel_round(right,left,i);
+//		}
+//
+//		bv_free(right);
+//		right = next_right;
+//
+//		copy_vec(c_block, p_block);
+//		bitvec_xor(c_block,left);
+//		print_vec(c_block);
+//		bitvec_xor(c_block,left);
+//		print_vec(c_block);
+//	}
+
+//	add_CRC(p_block,32);
+//	print_vec(p_block);
+//	printf("check: %d \n", check_CRC(p_block,32));
+//	print_vec(p_block);
+//	conv_encode(c_block, p_block);
+//	print_vec(c_block);
+//
+//
+//
+//
+//
+//	linear_append(e_block,0x03);
+//	print_vec(e_block);
+//	conv_encode(rs_block,e_block);
+//	print_vec(rs_block);
+//
+//	vit_dec(e_block, rs_block);
+//	print_vec(e_block);
+
+
+	L138_initialise_intr(FS_24000_HZ,ADC_GAIN_24DB,DAC_ATTEN_0DB,LCDK_MIC_INPUT);
 
     while(1) {
 
@@ -279,24 +489,16 @@ int main(void) {
     free(rs_block);
     free(c_block);
 
+    bv_free(right);
+    free(right);
+    bv_free(left);
+    free(left);
+    bv_free(rec_message);
+    free(rec_message);
+
 }
 
 // INLINE FUNCTIONS -----------------------------------------------------//
-inline void bitvec_to_symbol(void) {
-	curr_symbol = curr_bitvec ^ (curr_bitvec >> 1);
-}
-
-inline void symbol_to_bitvec(void) {
-
-	curr_bitvec = curr_symbol;
-	curr_bitvec ^= (curr_bitvec >> 16);
-	curr_bitvec ^= (curr_bitvec >> 8);
-	curr_bitvec ^= (curr_bitvec >> 4);
-	curr_bitvec ^= (curr_bitvec >> 2);
-	curr_bitvec ^= (curr_bitvec >> 1);
-}
-
-
 inline void iirso_filter(void) {
 	//IIR Chebyshev, Butterworth, or Elliptic Filter here (see OMAP L138 by Reay p.174) ***
 	float wn;

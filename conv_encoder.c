@@ -5,9 +5,13 @@
 
 short state = 0;
 short isOdd = FALSE;
-short punctured = FALSE;
+short punctured = TRUE;
 
 // CONVOLUTIONAL CODE FUNCTIONS ------------------------------------------------------//
+void setPuncturing(short s) {
+    punctured = s;
+}
+
 /* void updateState(unsigned char)
  *   updates the state based on the current bit
  *
@@ -70,6 +74,7 @@ void encode(bv_t dest, unsigned char bit) {
     // add the first parity bit to the destination
     u %= 2;
     bit_append(dest, u);
+    //printf("bit1: %d, ", u);
 
     // calculate the rest of the parity bits
     // p[n] = u + x[n]
@@ -78,9 +83,12 @@ void encode(bv_t dest, unsigned char bit) {
 		b = (state & (1 << i)) >> i;
 		u = (bit + b) % 2;
 
-		if(!punctured || !isOdd)
+		if(!punctured || !isOdd) {
 			bit_append(dest, u);
+            //printf("bit2: %d", u);
+        }
 	}
+    //printf("\n");
 
 
     isOdd = !isOdd;
