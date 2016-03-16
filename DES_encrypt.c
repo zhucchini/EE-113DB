@@ -51,14 +51,104 @@ short permutation[32] = { 15,  6, 19, 20, 28, 11, 27, 16,
 						   1,  7, 23, 13, 31, 26,  2,  8,
 						  18, 12, 29,  5, 21, 10,  3, 24 };
 
-int    m_round_key[16];
-short  e_round_key[16];
+short key_permutation1[56] = { 56, 48, 40, 32, 24 , 16,  8,
+        					    0, 57,  49, 41, 33, 25, 17,
+        					   11,  1,  58, 50, 42, 34, 26,
+        					   18, 10,   2, 59, 51, 43, 35,
+        					   62, 54,  46, 38, 30, 22, 14,
+        					    6, 61,  53, 45, 37, 29, 21,
+        				  	   13,  5,  60, 52, 44, 36, 28,
+        					   20, 12,   4, 27, 19, 11,  3 };
 
-void generateKeys(long h) {
+short key_shifts[16] = {1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1};
+
+short m_key_permutation[32] =  {   16, 10, 23,  0,
+								   27, 14,  5, 20,
+								   18, 11,  3, 25,
+								    6, 26, 19, 12,
+								   51, 30, 36, 46,
+								   39, 50, 44, 32,
+								   48, 38, 55, 33,
+								   41, 49, 35, 28    };
+
+short e_key_permutation[16] = {13,  4,  2,  9, 22,  7, 15,  1,
+								 40, 54, 29, 47, 43, 52, 45, 31 };
+
+
+int    m_round_key[16] = {0};
+short  e_round_key[16] = {0};
+
+void generateKeys(int lkey, int rkey) {
 	int i;
+	int c[17] = {0};
+	int d[17] = {0};
+
+	bv_t temp_vecl = malloc (sizeof (struct bitvec));
+	bv_new(temp_vecl,32);
+	bv_t temp_vecr = malloc (sizeof (struct bitvec));
+	bv_new(temp_vecr,32);
+
+	load(temp_vecl,lkey);
+	load(temp_vecr,rkey);
+
+	print_vec(temp_vecl);
+	print_vec(temp_vecr);
+
+	int index;
+	for(i = 0; i < 28; i++) {
+		index = key_permutation1[i];
+		if(index < 32)
+			c[0] ^= (int)get_bit(temp_vecl,index) << (31 - i);
+		else
+			c[0] ^= (int)get_bit(temp_vecr,index-32) << (31 - i);
+	}
+	for(i = 0; i < 28; i++) {
+		index = key_permutation1[28+i];
+		if(index < 32)
+			d[0] ^= (int)get_bit(temp_vecl,index) << (31 - i);
+		else
+			d[0] ^= (int)get_bit(temp_vecr,index-32) << (31 - i);
+	}
+
+	printf("%d, %d \n", c[0],d[0]);
+
+	for(i = 1; i <= 16; i++) {
+		if(key_shifts[i-1] == 1) {
+			c[i] = (c[i-1] << 1) ^ (c[i-1] >> 27);
+			d[i] = (d[i-1] << 1) ^ (d[i-1] >> 27);
+		}
+		else {
+			c[i] = (c[i-1] << 2) ^ (c[i-1] >> 26);
+			d[i] = (d[i-1] << 2) ^ (d[i-1] >> 26);
+		}
+		printf("%d, %d \n", c[i],d[i]);
+	}
+
+
+	int j;
 	for(i = 0; i < 16; i++) {
-		m_round_key[i] = rand();
-		e_round_key[i] = 0xFFFF & rand();
+
+		load(temp_vecl,c[i+1]);
+		load(temp_vecr,d[i+1]);
+		print_vec(temp_vecl);
+		print_vec(temp_vecr);
+
+		for(j = 0; j < 32; j++) {
+			index = m_key_permutation[j];
+			if(index < 28)
+				m_round_key[i] ^= (int)get_bit(temp_vecl,index) << (31 - j);
+			else
+				m_round_key[i] ^= (int)get_bit(temp_vecr,index-28) << (31 - j);
+		}
+		printf("%d, ", m_round_key[i]);
+		for(j = 0; j < 16; j++) {
+			index = e_key_permutation[j];
+			if(index < 28)
+				e_round_key[i] ^= (short)get_bit(temp_vecl,index) << (15 - j);
+			else
+				e_round_key[i] ^= (short)get_bit(temp_vecr,index-28) << (15 - j);
+		}
+		printf("%d \n", e_round_key[i]);
 	}
 }
 

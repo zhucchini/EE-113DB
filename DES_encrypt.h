@@ -4,7 +4,7 @@
 
 
 // DES tools
-void generateKeys(long h);
+void generateKeys(int lkey, int rkey);
 void feistel_sub(bv_t bv, short round);
 void feistel_perm(bv_t bv);
 void feistel_round(bv_t left, bv_t right, short round);

@@ -45,6 +45,10 @@ int   f_gray_code[] = {0,1,3,2,6,7,5,4};
 int   r_gray_code[] = {0,1,3,2,7,6,4,5};
 float dial;
 float display;
+int pad_a;
+int pad_b;
+int rep_pad;
+short
 int bit_errors = 0;
 int num_transmissions = 0;
 int num_arqs = 0;
@@ -94,6 +98,8 @@ int   curr_bitvec = 0;
 int   counter = 0;
 int   message1 = 0;
 int   message2 = 0;
+int   rep_message1;
+int   rep_message2;
 float symbols[25];
 int   message_len = 25;
 int   message_index = 0;
@@ -181,28 +187,28 @@ interrupt void interrupt4(void) { // interrupt service routine
 						print_vec(rec_message);
 					}
 				} else if (index == N-(PROCESS_TIME-19)) {
-//					if (!arq_in_prog && check_CRC(rec_message,32)) {
-//						int temp300 = vit_unload(rec_message);
-//						display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
-//						if (DEBUG) {
-//							printf("vit_unload: %d, display: %f \n \n \n", temp300, display);
-//						}
-//						num_transmissions++;
-//					} else {
-//						if(!arq_in_prog) {
-//							arq_in_prog = TRUE;
-//							num_arqs++;
-//						} else {
+					if (!arq_in_prog && !check_CRC(rec_message,32)) {
+						int temp300 = vit_unload(rec_message);
+						display = MAX_SPEED*((float) (vit_unload(rec_message)^pad_a))/INT_MAX;
+						if (DEBUG) {
+							printf("vit_unload: %d, display: %f \n \n \n", temp300, display);
+						}
+						num_transmissions++;
+					} else {
+						if(!arq_in_prog) {
+							arq_in_prog = TRUE;
+							num_arqs++;
+						} else {
 							int temp300 = vit_unload(rec_message);
-							display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
+							display = MAX_SPEED*((float) (vit_unload(rec_message)^pad_a))/INT_MAX;
 							arq_in_prog = FALSE;
 							if(TEST) {
-								load(test2,temp300);
+								load(test2,temp300^pad_a);
 								bit_errors += hammingDistance(test1,test2);
 							}
 							num_transmissions++;
-//						}
-//					}
+						}
+					}
 				} else if (index == N-(PROCESS_TIME-20)) {
 					vit_dec_reset();
 					rec_message_index = 0;
@@ -252,12 +258,12 @@ interrupt void interrupt4(void) { // interrupt service routine
 
 		//*** TODO Reed-Solomon encoding for HARQ II
 
-		if(!arq_in_prog && rec_ready) {
+		if(rec_ready) {
 			if(counter == 0) {
 				// get message from sensor (in this case dial
 				// represent float data as an int
 				message1 = (int) INT_MAX * (dial/MAX_SPEED);
-				load(p_block,message1);
+				//load(p_block,message1);
 				load(test1,message1);
 				clear_vec(c_block);
 				clearState();
@@ -267,27 +273,31 @@ interrupt void interrupt4(void) { // interrupt service routine
 				}
 
 				// begin encryption (DES OFB mode)
-				//next_right = unload(right);
+				next_right = unload(right);
 
 				//debugging
 				//debug1 = unload(p_block);
 			}
 			else if(counter >= 1 && counter < 33) { // generate DES 'one-time pad' (16 rounds)
 				if(counter%2 == 1) {
-					//temp_left = unload(left);
-					//copy_vec(left, right);
-					//feistel_sub(right, (counter-1)/2);
+					temp_left = unload(left);
+					copy_vec(left, right);
+					feistel_sub(right, (counter-1)/2);
 				}
 				else {
-					//feistel_perm(right);
-					//temp_left ^= unload(right);
-					//load(right, temp_left);
+					feistel_perm(right);
+					temp_left ^= unload(right);
+					load(right, temp_left);
 				}
 
 			}
 			else if(counter == 33) { // xor with pad to get ciphertext
-	//			load(right, next_right);
-	//			copy_vec(e_block, p_block);
+				load(right, next_right);
+				pad_a = pad_b;
+				pad_b = unload(left);
+				message1 ^= pad_b; // actual message encryption
+				load(p_block, message1);
+	//			unload(e_block, p_block);
 	//			bitvec_xor(e_block, left);
 			}
 			else if(counter == 34) { //add CRC for ED
@@ -322,6 +332,12 @@ interrupt void interrupt4(void) { // interrupt service routine
 		if(counter == N-1) {
 	//		debug2 = get(c_block,transmission_index*3,transmission_index*3+2); //for debugging
 	//		curr_symbol = f_gray_code[get(c_block,transmission_index*3,transmission_index*3+2)];
+			if(transmission_index == 0 && arq_in_prog) {
+				message1 = rep_message1;
+				message2 = rep_message2;
+				pad_b = rep_pad;
+			}
+
 			int start_index = transmission_index*3;
 			if(start_index > 31) {
 				curr_symbol = f_gray_code[(message2 >> (28-(start_index-33))) & 0x07];
@@ -335,6 +351,9 @@ interrupt void interrupt4(void) { // interrupt service routine
 			if(transmission_index == SYM_PER_DATA) {
 				rec_ready = TRUE;
 				transmission_index = 0;
+				rep_message1 = message1;
+				rep_message2 = message2;
+				rep_pad = pad_b;
 			}
 			symbols[message_index] = target[7-curr_symbol];
 			rec_init = FALSE;
@@ -392,6 +411,11 @@ int main(void) {
 	load(right, rand()*rand());
 	load(left, rand()*rand());
 
+	int key_right = rand()*rand();
+	int key_left = rand()*rand();
+
+	generateKeys(key_left, key_right);
+
 	rec_message = malloc (sizeof (struct bitvec));
 	bv_new(rec_message,32);
 
@@ -399,49 +423,49 @@ int main(void) {
 
 	//load(p_block,0xF35AC);
 	//add_CRC(p_block,32);
-	clear_vec(p_block);
-	load(p_block, 0xF35AC);
-	add_CRC(p_block,32);
-	print_vec(p_block);
-	clear_vec(c_block);
-	for(i = 0; i < 40; i++) {
-		unsigned short abc = pop(p_block);
-//		printf("bit: %u, ", abc);
-		encode(c_block, abc);
-	}
-	print_vec(c_block);
-	int m1 = unload(c_block);
-	int m2 = unload2(c_block);
-	printf("message: %d, \n", m1);//, m2);
-
-	for(i = 0; i < 20; i++) {
-		int start_index = i*3;
-		if(start_index > 31)
-			curr_symbol = (m2 >> (28-(start_index-33))) & 0x07;//curr_symbol = f_gray_code[(message2 >> (28-(start_index-33))) & 0x07];
-		else if(start_index > 29)
-			curr_symbol = ((m1 << 1) ^ ((m2 >> 31) % 2)) & 0x07;//f_gray_code[((message1 << 1) ^ ((message2 >> 31) % 2)) & 0x07];
-		else
-			curr_symbol = (m1 >> (29-start_index)) & 0x07;//f_gray_code[(message1 >> (29-start_index)) & 0x07];
-		printf("curr_symbol: %d, curr_symbol >> 1: %d \n", curr_symbol, curr_symbol >> 1);
-		vit_dec_bmh(curr_symbol >> 1);
-		vit_dec_ACS(0);
-		vit_dec_ACS(1);
-		vit_dec_ACS(2);
-		vit_dec_ACS(3);
-		update_paths();
-
-		printf("curr_symbol: %d, curr_symbol mod 2: %d \n", curr_symbol, curr_symbol % 2);
-		vit_dec_bmh(curr_symbol % 2);
-		vit_dec_ACS(0);
-		vit_dec_ACS(1);
-		vit_dec_ACS(2);
-		vit_dec_ACS(3);
-		update_paths();
-	}
-	printf("done \n \n \n");
-	vit_dec_get(rec_message);
-	print_vec(rec_message);
-	printf("CRC?: %d \n", check_CRC(rec_message,32));
+//	clear_vec(p_block);
+//	load(p_block, 0xF35AC);
+//	add_CRC(p_block,32);
+//	print_vec(p_block);
+//	clear_vec(c_block);
+//	for(i = 0; i < 40; i++) {
+//		unsigned short abc = pop(p_block);
+////		printf("bit: %u, ", abc);
+//		encode(c_block, abc);
+//	}
+//	print_vec(c_block);
+//	int m1 = unload(c_block);
+//	int m2 = unload2(c_block);
+//	printf("message: %d, \n", m1);//, m2);
+//
+//	for(i = 0; i < 20; i++) {
+//		int start_index = i*3;
+//		if(start_index > 31)
+//			curr_symbol = (m2 >> (28-(start_index-33))) & 0x07;//curr_symbol = f_gray_code[(message2 >> (28-(start_index-33))) & 0x07];
+//		else if(start_index > 29)
+//			curr_symbol = ((m1 << 1) ^ ((m2 >> 31) % 2)) & 0x07;//f_gray_code[((message1 << 1) ^ ((message2 >> 31) % 2)) & 0x07];
+//		else
+//			curr_symbol = (m1 >> (29-start_index)) & 0x07;//f_gray_code[(message1 >> (29-start_index)) & 0x07];
+//		printf("curr_symbol: %d, curr_symbol >> 1: %d \n", curr_symbol, curr_symbol >> 1);
+//		vit_dec_bmh(curr_symbol >> 1);
+//		vit_dec_ACS(0);
+//		vit_dec_ACS(1);
+//		vit_dec_ACS(2);
+//		vit_dec_ACS(3);
+//		update_paths();
+//
+//		printf("curr_symbol: %d, curr_symbol mod 2: %d \n", curr_symbol, curr_symbol % 2);
+//		vit_dec_bmh(curr_symbol % 2);
+//		vit_dec_ACS(0);
+//		vit_dec_ACS(1);
+//		vit_dec_ACS(2);
+//		vit_dec_ACS(3);
+//		update_paths();
+//	}
+//	printf("done \n \n \n");
+//	vit_dec_get(rec_message);
+//	print_vec(rec_message);
+//	printf("CRC?: %d \n", check_CRC(rec_message,32));
 
 //	int test1 = (0xE9 << 8) + 0xC7;
 //	load(p_block,test1);
