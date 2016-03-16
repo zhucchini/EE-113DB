@@ -11,13 +11,13 @@
 #include "DES_encrypt.h"
 
 // DEFINITIONS ---------------------------------------------------//
-#define N		   		480
+#define N		   		240
 #define S				4
 #define SCALE_SIZE		8
 #define TRUE	   		1
 #define FALSE	   		0
 #define PI			    3.14159265358979
-#define A3				220.0 // in Hz
+#define ROOT_NOTE		440.0 // in Hz
 #define SAMPLING_FREQ	24000
 #define PRECISION		36
 #define PROCESS_TIME	21 // for receiver to do demodulation, viterbi, CRC ED
@@ -34,6 +34,8 @@
 #define MAX_SPEED		120.0
 #define INT_MAX			0x7FFFFFFF
 #define DEBUG			0
+#define TEST			1
+#define MAX_TRANS		1000
 
 
 // NOT CONSTANTS -----------------------------------------------------//
@@ -43,6 +45,11 @@ int   f_gray_code[] = {0,1,3,2,6,7,5,4};
 int   r_gray_code[] = {0,1,3,2,7,6,4,5};
 float dial;
 float display;
+int bit_errors = 0;
+int num_transmissions = 0;
+int num_arqs = 0;
+bv_t test1;
+bv_t test2;
 
 // RECEIVER VARIABLES -----------------------------------------------------//
 int flag = FALSE;
@@ -174,21 +181,28 @@ interrupt void interrupt4(void) { // interrupt service routine
 						print_vec(rec_message);
 					}
 				} else if (index == N-(PROCESS_TIME-19)) {
-					if (!arq_in_prog && check_CRC(rec_message,32)) {
-						int temp300 = vit_unload(rec_message);
-						display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
-						if (DEBUG) {
-							printf("vit_unload: %d, display: %f \n \n \n", temp300, display);
-						}
-					} else {
-						if(!arq_in_prog) {
-							arq_in_prog = TRUE;
-						} else {
+//					if (!arq_in_prog && check_CRC(rec_message,32)) {
+//						int temp300 = vit_unload(rec_message);
+//						display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
+//						if (DEBUG) {
+//							printf("vit_unload: %d, display: %f \n \n \n", temp300, display);
+//						}
+//						num_transmissions++;
+//					} else {
+//						if(!arq_in_prog) {
+//							arq_in_prog = TRUE;
+//							num_arqs++;
+//						} else {
 							int temp300 = vit_unload(rec_message);
 							display = MAX_SPEED*((float) vit_unload(rec_message))/INT_MAX;
 							arq_in_prog = FALSE;
-						}
-					}
+							if(TEST) {
+								load(test2,temp300);
+								bit_errors += hammingDistance(test1,test2);
+							}
+							num_transmissions++;
+//						}
+//					}
 				} else if (index == N-(PROCESS_TIME-20)) {
 					vit_dec_reset();
 					rec_message_index = 0;
@@ -244,6 +258,7 @@ interrupt void interrupt4(void) { // interrupt service routine
 				// represent float data as an int
 				message1 = (int) INT_MAX * (dial/MAX_SPEED);
 				load(p_block,message1);
+				load(test1,message1);
 				clear_vec(c_block);
 				clearState();
 				if (DEBUG) {
@@ -337,13 +352,13 @@ interrupt void interrupt4(void) { // interrupt service routine
 int main(void) {
 	int i;
 	for(i = 0; i < PRECISION; i++) {
-		scale[i] = A3*pow(2,i/36.0);
+		scale[i] = ROOT_NOTE*pow(2,i/36.0);
 		periods[i] = SAMPLING_FREQ/scale[i];
 		correlation[i] = 0;
 	}
 
 	for(i = 0; i < NUM_SYMBOLS; i++) {
-		target[i] = A3*pow(2,i/((double)NUM_SYMBOLS+1.0));
+		target[i] = ROOT_NOTE*pow(2,i/((double)NUM_SYMBOLS+1.0));
 		targetPeriod[i] = SAMPLING_FREQ/scale[i];
 	}
 
@@ -354,6 +369,12 @@ int main(void) {
 	}
 
 	setupDecoder();
+
+
+	test1 = malloc (sizeof(struct bitvec));
+	test2 = malloc (sizeof(struct bitvec));
+	bv_new(test1,32);
+	bv_new(test2,32);
 
 	p_block = malloc (sizeof(struct bitvec));
 	e_block = malloc (sizeof(struct bitvec));
@@ -483,11 +504,16 @@ int main(void) {
 
 	L138_initialise_intr(FS_24000_HZ,ADC_GAIN_24DB,DAC_ATTEN_0DB,LCDK_MIC_INPUT);
 
-    while(1) {
+    while(num_transmissions < MAX_TRANS) {
 
     }
 
-    print_vec(c_block);
+    printf("%d errors in %d transmissions \n", bit_errors, num_transmissions);
+
+    bv_free(test1);
+    bv_free(test2);
+    free(test1);
+    free(test2);
 
     bv_free(p_block);
     bv_free(e_block);

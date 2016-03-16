@@ -428,7 +428,7 @@ int unload2(bv_t bv) {
 	d += bits[4]  << 24;
 	d += bits[5] << 16;
 	d += bits[6] << 8;
-	d += bits[7];
+	d += (bits[7] & 0x0F) << 4;
 
 	return d;
 }
