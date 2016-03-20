@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+// Subsitition boxes used in Feistel function
 char s_box1[64] =  { 14,4,13,1,2,15,11,8,3,10,6,12,5,9,0,7,
 					 0,15,7,4,14,2,13,1,10,6,12,11,9,5,3,8,
 					 4,1,14,8,13,6,2,11,15,12,9,7,3,10,5,0,
@@ -45,12 +46,15 @@ char s_box8[64] =  { 13,2,8,4,6,15,11,1,10,9,3,14,5,0,12,7,
 					 1,15,13,8,10,3,7,4,12,5,6,11,0,14,9,2,
 					 7,11,4,1,9,12,14,2,0,6,10,13,15,3,5,8,
 					 2,1,14,7,4,10,8,13,15,12,9,0,3,5,6,11 };
-
+					 
+					 
+// Permutation used in Feistel function
 short permutation[32] = { 15,  6, 19, 20, 28, 11, 27, 16,
 						   0, 14, 22, 25,  4, 17, 30,  9,
 						   1,  7, 23, 13, 31, 26,  2,  8,
 						  18, 12, 29,  5, 21, 10,  3, 24 };
 
+// First permutation used in key generation
 short key_permutation1[56] = { 56, 48, 40, 32, 24 , 16,  8,
         					    0, 57,  49, 41, 33, 25, 17,
         					   11,  1,  58, 50, 42, 34, 26,
@@ -59,9 +63,11 @@ short key_permutation1[56] = { 56, 48, 40, 32, 24 , 16,  8,
         					    6, 61,  53, 45, 37, 29, 21,
         				  	   13,  5,  60, 52, 44, 36, 28,
         					   20, 12,   4, 27, 19, 11,  3 };
-
+ 
+// Shifts used during key generation
 short key_shifts[16] = {1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1};
 
+// Second set of permutations used in key generation
 short m_key_permutation[32] =  {   16, 10, 23,  0,
 								   27, 14,  5, 20,
 								   18, 11,  3, 25,
@@ -74,10 +80,16 @@ short m_key_permutation[32] =  {   16, 10, 23,  0,
 short e_key_permutation[16] = {13,  4,  2,  9, 22,  7, 15,  1,
 								 40, 54, 29, 47, 43, 52, 45, 31 };
 
-
+// 16 Round keys (split by axis index to s-box)
 int    m_round_key[16] = {0};
 short  e_round_key[16] = {0};
 
+/* void generateKeys(void)
+ *  Takes in 64 bit key, produces 16 round keys
+ *  -round keys depend on only 56 bits of key
+ *  -key is passed i in rightand left halves
+ *  -call this in main()
+ */
 void generateKeys(int lkey, int rkey) {
 	int i;
 	int c[17] = {0};
@@ -110,7 +122,7 @@ void generateKeys(int lkey, int rkey) {
 			d[0] ^= (int)get_bit(temp_vecr,index-32) << (31 - i);
 	}
 
-	printf("%d, %d \n", c[0],d[0]);
+	//printf("%d, %d \n", c[0],d[0]);
 
 	for(i = 1; i <= 16; i++) {
 		if(key_shifts[i-1] == 1) {
@@ -121,7 +133,7 @@ void generateKeys(int lkey, int rkey) {
 			c[i] = (c[i-1] << 2) ^ (c[i-1] >> 26);
 			d[i] = (d[i-1] << 2) ^ (d[i-1] >> 26);
 		}
-		printf("%d, %d \n", c[i],d[i]);
+		//printf("%d, %d \n", c[i],d[i]);
 	}
 
 
@@ -140,7 +152,7 @@ void generateKeys(int lkey, int rkey) {
 			else
 				m_round_key[i] ^= (int)get_bit(temp_vecr,index-28) << (31 - j);
 		}
-		printf("%d, ", m_round_key[i]);
+		//printf("%d, ", m_round_key[i]);
 		for(j = 0; j < 16; j++) {
 			index = e_key_permutation[j];
 			if(index < 28)
@@ -148,10 +160,15 @@ void generateKeys(int lkey, int rkey) {
 			else
 				e_round_key[i] ^= (short)get_bit(temp_vecr,index-28) << (15 - j);
 		}
-		printf("%d \n", e_round_key[i]);
+		//printf("%d \n", e_round_key[i]);
 	}
 }
 
+/* void feistelSub(bv_t, short)
+ *  Performs the feistel substition for a given round
+ *  -uses the current round key to XOR, s-boxes for subst
+ *  -loop unrolled for interrupt compatibility
+ */
 void feistel_sub(bv_t bv, short round) {
 	short indices = 0;
 
@@ -201,6 +218,11 @@ void feistel_sub(bv_t bv, short round) {
 	load(bv, temp_vec);
 }
 
+/* void feistel_perm(bv_t)
+ *  Uses fixed permutation on bitvector
+ *  -should be called right after feistel_sub
+ *  -loop unrolled for interrupt compatibility
+ */
 void feistel_perm(bv_t bv) {
 	int temp = 0;
 	temp ^= (int)get_bit(bv,permutation[0]);
@@ -237,43 +259,12 @@ void feistel_perm(bv_t bv) {
 	temp ^= (int)get_bit(bv,permutation[31]) << 31;
 
 	load(bv,temp);
-
-//	set_bit(temp_vec,0,get_bit(bv,permutation[0]));
-//	set_bit(temp_vec,1,get_bit(bv,permutation[1]));
-//	set_bit(temp_vec,2,get_bit(bv,permutation[2]));
-//	set_bit(temp_vec,3,get_bit(bv,permutation[3]));
-//	set_bit(temp_vec,4,get_bit(bv,permutation[4]));
-//	set_bit(temp_vec,5,get_bit(bv,permutation[5]));
-//	set_bit(temp_vec,6,get_bit(bv,permutation[6]));
-//	set_bit(temp_vec,7,get_bit(bv,permutation[7]));
-//	set_bit(temp_vec,8,get_bit(bv,permutation[8]));
-//	set_bit(temp_vec,9,get_bit(bv,permutation[9]));
-//	set_bit(temp_vec,10,get_bit(bv,permutation[10]));
-//	set_bit(temp_vec,11,get_bit(bv,permutation[11]));
-//	set_bit(temp_vec,12,get_bit(bv,permutation[12]));
-//	set_bit(temp_vec,13,get_bit(bv,permutation[13]));
-//	set_bit(temp_vec,14,get_bit(bv,permutation[14]));
-//	set_bit(temp_vec,15,get_bit(bv,permutation[15]));
-//	set_bit(temp_vec,16,get_bit(bv,permutation[16]));
-//	set_bit(temp_vec,17,get_bit(bv,permutation[17]));
-//	set_bit(temp_vec,18,get_bit(bv,permutation[18]));
-//	set_bit(temp_vec,19,get_bit(bv,permutation[19]));
-//	set_bit(temp_vec,20,get_bit(bv,permutation[20]));
-//	set_bit(temp_vec,21,get_bit(bv,permutation[21]));
-//	set_bit(temp_vec,22,get_bit(bv,permutation[22]));
-//	set_bit(temp_vec,23,get_bit(bv,permutation[23]));
-//	set_bit(temp_vec,24,get_bit(bv,permutation[24]));
-//	set_bit(temp_vec,25,get_bit(bv,permutation[25]));
-//	set_bit(temp_vec,26,get_bit(bv,permutation[26]));
-//	set_bit(temp_vec,27,get_bit(bv,permutation[27]));
-//	set_bit(temp_vec,28,get_bit(bv,permutation[28]));
-//	set_bit(temp_vec,29,get_bit(bv,permutation[29]));
-//	set_bit(temp_vec,30,get_bit(bv,permutation[30]));
-//	set_bit(temp_vec,31,get_bit(bv,permutation[31]));
-//	bv_free(bv);
-//	bv = temp_vec;
 }
 
+/* if interrupt will accept it, this function will perform
+ * the entire round, otherwise use this code, copy paste and
+ * split over two interrupts
+ */
 void feistel_round(bv_t left, bv_t right, short round) {
 	int temp = unload(left);
 	copy_vec(left, right);
