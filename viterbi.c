@@ -20,7 +20,11 @@ short InverseTransitions[NUM_STATES][2];
 short Trellis[NUM_STATES][NUM_STATES] = {-1};
 short Decode[NUM_STATES][NUM_STATES] = {-1};
 
-// Should be called in main()
+/** void setupDecoder(void)
+/  Uses the current Convolutional Encoder to generate
+/  the appropriate tables for an efficient Viterbi decoder
+/  Should be called in main() before interrupt initialized
+*/
 void setupDecoder() {
 
 	setPuncturing(FALSE);
@@ -111,7 +115,8 @@ void setupDecoder() {
 		  }
 		  printf("\n");
 	}
-
+	
+	//reset the encoder and decoder
 	clearState();
 	vit_dec_reset();
 
@@ -120,12 +125,14 @@ void setupDecoder() {
 	free(a);
 	free(b);
 
+	//set puncturing (only accomodates 2/3 puncture)
 	setPuncturing(puncturedRec);
 }
 
-/* Hard decision branch metrics
+/*  void vit_dec_bmh(short)
+ *   Hard decision branch metrics
  *   Generate branch metrics based on Hamming Distances
- *
+ *   accomodates 2/3 rate puncturing if needed
  */
 void vit_dec_bmh(short m_hat) {
 	short i;
@@ -154,17 +161,20 @@ void vit_dec_bmh(short m_hat) {
 	isOddRec = !isOddRec;
 }
 
-/* Soft decision branch metrics
+/* void vit_dec_bms(short, float)
+ * Soft decision branch metrics
  * - Generate branch metrics base on Euclidean Distances
- *
+ * Incomplete!
  */
 void vit_dec_bms(short m_hat, float pr){
 
 }
 
-/* Add Compare Select Step
+/* vit_dec_ACS(short)
+ *  Add Compare Select Step
  * - Given branch metrics (based on hard or soft decoding)
  * - Find path metrics and survivor paths
+ * - Must be called for each state but split up for interrupt compatibility
  */
 void vit_dec_ACS(short i) {
   //short i;
@@ -173,7 +183,7 @@ void vit_dec_ACS(short i) {
 
 
 
-  //for(i = 0; i < NUM_STATES; i++) {
+  //for(i = 0; i < NUM_STATES; i++) {h)
 	  //get candidates
 	  short index1 = InverseTransitions[i][0];
 	  int path1 = pm[index1] + bm[Trellis[index1][i]];
@@ -203,6 +213,11 @@ void vit_dec_ACS(short i) {
 	  //update_paths();
 }
 
+/* void update_paths(void)
+ *  Used after completing calls to vit_dec_ACS
+ *  -hardcoded with unrolled loop for 4 state encoder
+ *  -only part that needs to be manually adjusted for other encoders
+ */
 void update_paths(/*short i*/) {
 	//short i;
  /* for(i = 0; i < NUM_STATES; i++) {
@@ -220,7 +235,11 @@ void update_paths(/*short i*/) {
 	copy_vec(paths[3], paths_next[3]);
 }
 
-//get the minimum distance path
+/* void vit_dec_get(bv_t)
+ *  Returns the minimum weight path so far
+ *  -Note that an O(n) search is here where an O(log(n)) would be better
+ *  -This function should be updated for better efficiency with more states
+ */
 void vit_dec_get(bv_t dest) {
 	int min_index = 0;
 	int min_value = pm[0];
@@ -237,6 +256,8 @@ void vit_dec_get(bv_t dest) {
 
 }
 
+
+//Testing Function
 void vit_dec(bv_t dest, bv_t src) {
 	//printf("%d\n", Trellis[0][2]);
 
@@ -268,6 +289,11 @@ void vit_dec(bv_t dest, bv_t src) {
 
 }
 
+/* void vit_dec_reset(void)
+ *  Resets the decoder for new message
+ *  -another part that is hardcoded so needs to be changed for more states
+ *  -sets up decoder with assumption that initial state is 0,0
+ */
 void vit_dec_reset() {
 	isOddRec = FALSE;
 //	int i;
